@@ -1,0 +1,200 @@
+--Varibles DON'T TOUCH
+  version = "a-2.0Dev"
+  
+  -- DONT TOUCH THIS
+  running = true
+  
+  --YOU CAN TOUCH THIS Colors
+  colTextBar = colors.red
+  colTaskBar = colors.green
+  colBackground = colors.blue
+  
+  --Images DON'T TOUCH
+  _dt = paintutils.loadImage("/.os/.backgrounds/desktop")
+ 
+ 
+  --Booleans DON'T TOUCH
+  _ms = 0
+  _rcm = 0
+--Functions DON'T TOUCH
+  clear = function()
+    term.setBackgroundColor(colors.black)
+    term.clear()
+    term.setCursorPos(1, 1)
+  end
+  
+  redraw = function()
+    drawDeskTop()
+    drawTaskBar()
+  end
+  
+  drawMenu1 = function()
+    term.setCursorPos(1, 18)
+    term.setBackgroundColor( colBackground )
+    term.setTextColor( colors.red )
+    print( "[ ShutDown ]" )
+    term.setCursorPos(1,17)
+    term.write("[ Re-Boot ]")
+  end
+  
+  reload = function()
+    stop()
+    clear()
+    running = false
+    shell.run("/.os/.gui")
+  end
+
+  rightClickMenu = function(x, y)
+    term.setBackgroundColor( colTaskBar )
+    term.setTextColor( colTextBar )
+    term.setCursorPos( x,y )
+    term.write(" [ LUA ] ")
+    term.setCursorPos(x,y+1)
+    term.write(" [ Developer Editor ] ")
+    term.setCursorPos(x, y+2)
+    term.setTextColor(colors.lime)
+    term.write(" [ Re-Boot ] ")
+    term.setCursorPos(x, y+3)
+    term.write("")
+    term.setCursorPos(x, y+4)
+    term.write("- = - = - = -")
+    term.setCursorPos(x, y+5)
+    term.write("( DANGOROUS ) [ UnInstall OS ] ")
+    local charLength = 11
+    local event, button, xPos, yPos = os.pullEvent("mouse_click")
+    while true do
+      if button == 1 and yPos == y and xPos <= (x+charLength) and xPos >= x then
+        running = false
+        clear()
+        term.setTextColor( colors.red )
+        print("LUA Prompt")
+        print("")
+        shell.run("lua")
+        redraw()
+        reload()
+        break
+     elseif button == 1 and yPos == (y+1) and xPos <= (x+7) and xPos >= x then
+        shell.run("edit", "/.os/.gui")
+        _rcm = 0
+        _ms = 0
+        reload()
+        break
+     elseif button == 1 and yPos == (y+2) and xPos <= (x+8) then
+       term.setBackgroundColor( colors.red )
+       term.setTextColor( colors.blue )
+       term.clear()
+       term.setCursorPos(5, 5)
+       print("Re-Booting ")
+       textutils.slowWrite(".   .   .  ")
+       os.reboot()
+       break
+     elseif button == 1 and yPos == (y+5) and xPos <= (x+9) then
+       term.clear()
+       shell.run( "/.os/.UnInstall" )
+     else
+        redraw()
+        reload()
+        break
+    end
+    _rcm = 0
+  end
+end
+
+    
+  drawTaskBar = function()
+    term.setCursorPos(1, 19)
+    term.setBackgroundColor( colTaskBar )
+    term.clearLine()
+    term.setCursorPos(1, 19)
+    term.setBackgroundColor( colors.green )
+    term.setTextColor( colors.blue )
+    term.write("[ Power ] ")
+  end
+ 
+  drawDeskTop = function()
+    term.setBackgroundColor( colBackground )
+    term.clear()
+    term.setCursorPos(1, 1)
+    paintutils.drawImage(_dt, 1, 1)
+    term.setCursorPos( 1,1 )
+	term.setBackgroundColor( colBackground )
+	write( "Version " )
+	write(version)
+  end
+  
+  
+  stop = function()
+    clear()
+    running = false
+    term.setTextColor( colors.orange )
+    print("Thank you")
+  end  
+ 
+  runTime = function()
+    while running do
+      event, button, x, y = os.pullEvent("mouse_click")
+      if _ms == 0 and button == 1 and x < 7 and y == 19 then
+        drawMenu1()
+        _ms = 1
+      elseif _ms == 0 and button == 1 and x < 7 and y == 19 then
+	drawMenu2()
+      elseif _ms == 1 and button == 1 and y == 18 and x < 7 then
+        term.clear()
+        print("Shutting Down")
+        os.shutdown()
+      elseif _ms == 1 and button == 1 and x < 7 and y == 19 then
+        init()
+      elseif _ms == 0 and _rcm == 0 and button == 2 then
+        rightClickMenu(x, y)
+        _rcm = 1
+      elseif _ms == 1 and button == 1 and x < 9 and y == 3 then
+        clear()
+        term.setBackgroundColor(colors.cyan)
+        term.clear()
+        term.setCursorPos(1,1)
+        term.setTextColor(colors.lime)
+        term.write("ReBooting")
+        os.reboot()
+      end
+    end
+  end
+ 
+ 
+  init = function()
+    _ms = 0
+    drawDeskTop()
+    drawTaskBar()
+    runTime()
+  end
+ 
+ 
+-- Running Functions
+local ok, err = pcall(init)
+
+if not ok then
+	if err == "Terminated" then
+  		term.setBackgroundColor( colors.yellow )
+		term.setTextColor( colors.red )
+		term.clear()
+		term.setCursorPos(1,1)
+		print("Yellow Screen Of Death,")
+		print(" ")
+		print("SpaceOS Error")
+		print(" ")
+		print("Error Code -> Terminate Canceled")
+	else
+		term.setBackgroundColor( colors.yellow )
+  term.clear()
+  term.setCursorPos( 1,1 )
+  print( "Yellow Screen Of Death," )
+  print( " " )
+  print( "SpaceOS Error" )
+  print( "Error Code -> Lua ")
+  term.setTextColor( colors.red )
+  write(err)
+	end
+else
+	print("Exited without Errors")
+end
+pcall(sleep, 5)
+os.reboot()
