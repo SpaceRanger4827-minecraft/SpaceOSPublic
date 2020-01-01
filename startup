@@ -1,0 +1,37 @@
+local boot = paintutils.loadImage("/.os/.boot")
+
+function main()
+	term.setBackgroundColor( colors.yellow )
+  	term.clear()
+  	paintutils.drawImage(boot, 3, 1)
+  	term.setBackgroundColor( colors.yellow )
+  	term.setCursorPos( 19,2 )
+  	term.setTextColor( colors.black )
+  	textutils.slowPrint("O-o-O-o-O-o-O")
+  	term.setCursorPos( 20,3 )
+  	textutils.slowPrint( " .   .   . " )
+  	sleep(2)
+  	shell.run( "/.os/.password" )
+end
+
+local ok, err = pcall(main)
+
+if not ok then
+	if err == "Terminated" then
+  		term.setBackgroundColor( colors.yellow )
+		term.setTextColor( colors.red )
+		term.clear()
+		print[[
+		Yellow Screen Of Death,
+		
+		SpaceOS Error
+		
+		Error Code -> Terminate Canceled ]]
+	else
+		printError(err)
+	end
+else
+	print("Exited without Errors")
+end
+pcall(sleep, 5)
+os.reboot()

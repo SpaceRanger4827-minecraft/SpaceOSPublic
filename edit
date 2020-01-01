@@ -1,0 +1,1043 @@
+-- Get file to edit
+local tArgs = {...}
+
+if #tArgs == 0 then
+	print("Usage: edit <path>")
+	return
+end
+
+-- Error checking
+local sPath = shell.resolve(tArgs[1])
+local bReadOnly = fs.isReadOnly(sPath)
+
+if fs.exists(sPath) and fs.isDir(sPath) then
+	print("Cannot edit a directory.")
+	return
+end
+
+local x, y = 1, 1
+local w, h = term.getSize()
+local scrollX, scrollY = 0, 0
+
+local tLines = {}
+local bRunning = true
+
+-- Colors
+local highlightColor, keywordColor, commentColor, textColor, bgColor, stringColor, functionColor, numberColor, operatorColor
+
+if term.isColor() then
+	bgColor = colors.black
+	textColor = colors.white
+	highlightColor = colors.cyan
+	keywordColor = colors.cyan
+	commentColor = colors.green
+	stringColor = colors.red
+	functionColor = colors.purple
+	numberColor = colors.orange
+	operatorColor = colors.blue
+else
+	bgColor = colors.black
+	textColor = colors.white
+	highlightColor = colors.white
+	keywordColor = colors.white
+	commentColor = colors.white
+	stringColor = colors.white
+	functionColor = colors.white
+	numberColor = colors.white
+	operatorColor = colors.white
+end
+
+-- Menus
+local bMenu = false
+local nMenuItem = 1
+local tMenuItems
+
+if bReadOnly then
+	tMenuItems = {"Exit"}
+else
+	tMenuItems = {"Save", "Exit"}
+end
+	
+local sStatus = "Press f1 to access menu"
+
+local function load(_sPath)
+	tLines = {}
+	
+	if fs.exists(_sPath) then
+		local file = io.open(_sPath, "r")
+		local sLine = file:read()
+		
+		while sLine do
+			table.insert(tLines, sLine)
+			sLine = file:read()
+		end
+		
+		file:close()
+	end
+	
+	if #tLines == 0 then
+		table.insert(tLines, "")
+	end
+end
+
+local function save(_sPath)
+	-- Create intervening folder
+	local sDir = sPath:sub(1, sPath:len() - fs.getName(sPath):len())
+
+	-- Save
+	local file = nil
+	
+	local function innerSave()
+		file = fs.open(_sPath, "w")
+		
+		if file then
+			for n, sLine in ipairs(tLines) do
+				file.write(sLine .. "\n")
+			end
+		else
+			error("Failed to open " .. _sPath)
+		end
+	end
+	
+	local ok = pcall(innerSave)
+	
+	if file then 
+		file:close()
+	end
+	
+	return ok
+end
+
+local tKeywords = {
+	--Keywords
+	["and"] = keywordColor,
+	["break"] = keywordColor,
+	["do"] = keywordColor,
+	["else"] = keywordColor,
+	["elseif"] = keywordColor,
+	["end"] = keywordColor,
+	["false"] = keywordColor,
+	["for"] = keywordColor,
+	["function"] = keywordColor,
+	["if"] = keywordColor,
+	["in"] = keywordColor,
+	["local"] = keywordColor,
+	["nil"] = keywordColor,
+	["not"] = keywordColor,
+	["or"] = keywordColor,
+	["repeat"] = keywordColor,
+	["return"] = keywordColor,
+	["then"] = keywordColor,
+	["true"] = keywordColor,
+	["until"]= keywordColor,
+	["while"] = keywordColor,
+	
+	--Bit
+	["bit"] = functionColor,
+	["bit.blshift"] = functionColor,
+	["bit.brshift"] = functionColor,
+	["bit.blogic_rshift"] = functionColor,
+	["bit.bxor"] = functionColor,
+	["bit.bor"] = functionColor,
+	["bit.band"] = functionColor,
+	["bit.bnot"] = functionColor,
+	
+	--Colors
+	["colors.white"] = colors.white,
+	["colors.orange"] = colors.orange,
+	["colors.magenta"] = colors.magenta,
+	["colors.lightBlue"] = colors.lightBlue,
+	["colors.yellow"] = colors.yellow,
+	["colors.lime"] = colors.lime,
+	["colors.pink"] = colors.pink,
+	["colors.gray"] = colors.gray,
+	["colors.lightGray"] = colors.lightGray,
+	["colors.cyan"] = colors.cyan,
+	["colors.purple"] = colors.purple,
+	["colors.blue"] = colors.blue,
+	["colors.brown"] = colors.brown,
+	["colors.green"] = colors.green,
+	["colors.red"] = colors.red,
+	["colors.black"] = colors.black,
+	["colors"] = functionColor,
+	["colors.combine"] = functionColor,
+	["colors.subtract"] = functionColor,
+	["colors.test"] = functionColor,
+	
+	--Commands
+	["commands"] = functionColor,
+	["commands.exec"] = functionColor,
+	["commands.execAsync"] = functionColor,
+	["commands.list"] = functionColor,
+	["commands.getBlockPosition"] = functionColor,
+	["commands.getBlockInfo"] = functionColor,
+	["commands.getBlockInfos"] = functionColor,
+	
+	--Coroutine
+	["coroutine"] = functionColor,
+	["coroutine.create"] = functionColor,
+	["coroutine.resume"] = functionColor,
+	["coroutine.running"] = functionColor,
+	["coroutine.status"] = functionColor,
+	["coroutine.wrap"] = functionColor,
+	["coroutine.yield"] = functionColor,
+	
+	--disk
+	["disk"] = functionColor,
+	["disk.isPresent"] = functionColor,
+	["disk.hasData"] = functionColor,
+	["disk.getMountPath"] = functionColor,
+	["disk.setLabel"] = functionColor,
+	["disk.getLabel"] = functionColor,
+	["disk.getId"] = functionColor,
+	["disk.hasAudio"] = functionColor,
+	["disk.getAudioTitle"] = functionColor,
+	["disk.playAudio"] = functionColor,
+	["disk.stopAudio"] = functionColor,
+	["disk.eject"] = functionColor,
+	
+	--fs
+	["fs"] = functionColor,
+	["fs.list"] = functionColor,
+	["fs.exists"] = functionColor,
+	["fs.isDir"] = functionColor,
+	["fs.isReadOnly"] = functionColor,
+	["fs.getName"] = functionColor,
+	["fs.getDrive"] = functionColor,
+	["fs.getSize"] = functionColor,
+	["fs.getFreeSpace"] = functionColor,
+	["fs.makeDir"] = functionColor,
+	["fs.move"] = functionColor,
+	["fs.copy"] = functionColor,
+	["fs.delete"] = functionColor,
+	["fs.combine"] = functionColor,
+	["fs.open"] = functionColor,
+	["fs.find"] = functionColor,
+	["fs.getDir"] = functionColor,
+	["fs.complete"] = functionColor,
+	
+	--gps
+	["gps"] = functionColor,
+	["gps.locate"] = functionColor,
+	
+	--help
+	["help"] = functionColor,
+	["help.path"] = functionColor,
+	["help.setPath"] = functionColor,
+	["help.lookup"] = functionColor,
+	["help.topics"] = functionColor,
+	["help.completeTopic"] = functionColor,
+	
+	--HTTP
+	["http"] = functionColor,
+	["http.request"] = functionColor,
+	["http.get"] = functionColor,
+	["http.post"] = functionColor,
+	["http.checkURL"] = functionColor,
+	
+	--io
+	["io"] = functionColor,
+	["io.open"] = functionColor,
+	["io.write"] = functionColor,
+	["io.read"] = functionColor,
+	
+	--Keys
+	["keys"] = functionColor,
+	["keys.getName"] = functionColor,
+	
+	--Math
+	["math"] = functionColor,
+	["math.abs"] = functionColor,
+	["math.acos"] = functionColor,
+	["math.asin"] = functionColor,
+	["math.atan"] = functionColor,
+	["math.atan2"] = functionColor,
+	["math.ceil"] = functionColor,
+	["math.cos"] = functionColor,
+	["math.cosh"] = functionColor,
+	["math.deg"] = functionColor,
+	["math.exp"] = functionColor,
+	["math.floor"] = functionColor,
+	["math.fmod"] = functionColor,
+	["math.frexp"] = functionColor,
+	["math.huge"] = functionColor,
+	["math.ldexp"] = functionColor,
+	["math.log"] = functionColor,
+	["math.log10"] = functionColor,
+	["math.max"] = functionColor,
+	["math.min"] = functionColor,
+	["math.modf"] = functionColor,
+	["math.pi"] = functionColor,
+	["math.pow"] = functionColor,
+	["math.rad"] = functionColor,
+	["math.random"] = functionColor,
+	["math.randomseed"] = functionColor,
+	["math.sin"] = functionColor,
+	["math.sinh"] = functionColor,
+	["math.sqrt"] = functionColor,
+	["math.tan"] = functionColor,
+	["math.tanh"] = functionColor,
+	
+	--multishell
+	["multishell"] = functionColor,
+	["multishell.getCurrent"] = functionColor,
+	["multishell.getCount"] = functionColor,
+	["multishell.launch"] = functionColor,
+	["multishell.setFocus"] = functionColor,
+	["multishell.setTitle"] = functionColor,
+	["multishell.getTitle"] = functionColor,
+	["multishell.getFocus"] = functionColor,
+	
+	--os
+	["os"] = functionColor,
+	["os.version"] = functionColor,
+	["os.getComputerID"] = functionColor,
+	["os.getComputerLabel"] = functionColor,
+	["os.run"] = functionColor,
+	["os.loadAPI"] = functionColor,
+	["os.unloadAPI"] = functionColor,
+	["os.pullEvent"] = functionColor,
+	["os.pullEventRaw"] = functionColor,
+	["os.queueEvent"] = functionColor,
+	["os.clock"] = functionColor,
+	["os.startTimer"] = functionColor,
+	["os.cancelTimer"] = functionColor,
+	["os.time"] = functionColor,
+	["os.sleep"] = functionColor,
+	["sleep"] = functionColor,
+	["os.day"] = functionColor,
+	["os.setAlarm"] = functionColor,
+	["os.cancelAlarm"] = functionColor,
+	["os.shutdown"] = functionColor,
+	["os.reboot"] = functionColor,
+	
+	--paintutils
+	["paintutils"] = functionColor,
+	["paintutils.loadImage"] = functionColor,
+	["paintutils.drawImage"] = functionColor,
+	["paintutils.drawPixel"] = functionColor,
+	["paintutils.drawLine"] = functionColor,
+	["paintutils.drawBox"] = functionColor,
+	["paintutils.drawFilledBox"] = functionColor,
+	
+	--parallel
+	["parallel"] = functionColor,
+	["parallel.waitForAny"] = functionColor,
+	["parallel.waitForAll"] = functionColor,
+	
+	--peripheral
+	["peripheral"] = functionColor,
+	["peripheral.isPresent"] = functionColor,
+	["peripheral.getType"] = functionColor,
+	["peripheral.getMethods"] = functionColor,
+	["peripheral.call"] = functionColor,
+	["peripheral.wrap"] = functionColor,
+	["peripheral.find"] = functionColor,
+	["peripheral.getNames"] = functionColor,
+	
+	--rednet
+	["rednet"] = functionColor,
+	["rednet.open"] = functionColor,
+	["rednet.close"] = functionColor,
+	["rednet.send"] = functionColor,
+	["rednet.broadcast"] = functionColor,
+	["rednet.receive"] = functionColor,
+	["rednet.isOpen"] = functionColor,
+	["rednet.host"] = functionColor,
+	["rednet.unhost"] = functionColor,
+	["rednet.lookup"] = functionColor,
+	["rednet.run"] = functionColor,
+	
+	--redstone
+	["redstone"] = functionColor,
+	["redstone.getSides"] = functionColor,
+	["redstone.getInput"] = functionColor,
+	["redstone.setOutput"] = functionColor,
+	["redstone.getOutput"] = functionColor,
+	["redstone.getAnalogIutput"] = functionColor,
+	["redstone.setAnalogOutput"] = functionColor,
+	["redstone.getAnalogOutput"] = functionColor,
+	["redstone.getBundledOutput"] = functionColor,
+	["redstone.setBundledOutput"] = functionColor,
+	["redstone.getBundledIutput"] = functionColor,
+	["redstone.testBundledIutput"] = functionColor,
+	
+	--settings
+	["settings"] = functionColor,
+	["settings.set"] = functionColor,
+	["settings.get"] = functionColor,
+	["settings.unset"] = functionColor,
+	["settings.clear"] = functionColor,
+	["settings.getNames"] = functionColor,
+	["settings.load"] = functionColor,
+	["settings.save"] = functionColor,
+	
+	--shell
+	["shell"] = functionColor,
+	["shell.exit"] = functionColor,
+	["shell.run"] = functionColor,
+	["shell.dir"] = functionColor,
+	["shell.setDir"] = functionColor,
+	["shell.path"] = functionColor,
+	["shell.setPath"] = functionColor,
+	["shell.resolve"] = functionColor,
+	["shell.resolveProgram"] = functionColor,
+	["shell.aliases"] = functionColor,
+	["shell.setAlias"] = functionColor,
+	["shell.clearAlias"] = functionColor,
+	["shell.programs"] = functionColor,
+	["shell.getRunningProgram"] = functionColor,
+	["shell.openTab"] = functionColor,
+	["shell.switchTab"] = functionColor,
+	["shell.complete"] = functionColor,
+	["shell.completeProgram"] = functionColor,
+	["shell.setCompletionFunction"] = functionColor,
+	["shell.getCompletionInfo"] = functionColor,
+	
+	--string
+	["string"] = functionColor,
+	["string.byte"] = functionColor,
+	["string.char"] = functionColor,
+	["string.dump"] = functionColor,
+	["string.find"] = functionColor,
+	["string.format"] = functionColor,
+	["string.gmatch"] = functionColor,
+	["string.gsub"] = functionColor,
+	["string.len"] = functionColor,
+	["string.lower"] = functionColor,
+	["string.upper"] = functionColor,
+	["string.match"] = functionColor,
+	["string.rep"] = functionColor,
+	["string.reverse"] = functionColor,
+	["string.sub"] = functionColor,
+	
+	--table
+	["table"] = functionColor,
+	["table.concat"] = functionColor,
+	["table.insert"] = functionColor,
+	["table.maxn"] = functionColor,
+	["table.remove"] = functionColor,
+	["table.sort"] = functionColor,
+	
+	--term
+	["term"] = functionColor,
+	["term.write"] = functionColor,
+	["term.blit"] = functionColor,
+	["term.clear"] = functionColor,
+	["term.clearLine"] = functionColor,
+	["term.getCursorPos"] = functionColor,
+	["term.setCursorPos"] = functionColor,
+	["term.setCursorBlink"] = functionColor,
+	["term.isColor"] = functionColor,
+	["term.getSize"] = functionColor,
+	["term.scroll"] = functionColor,
+	["term.redirect"] = functionColor,
+	["term.current"] = functionColor,
+	["term.native"] = functionColor,
+	["term.setTextColor"] = functionColor,
+	["term.getTextColor"] = functionColor,
+	["term.setBackgroundColor"] = functionColor,
+	["term.getBackgroundColor"] = functionColor,
+	
+	--textutils
+	["textutils"] = functionColor,
+	["textutils.slowWrite"] = functionColor,
+	["textutils.slowPrint"] = functionColor,
+	["textutils.formatTime"] = functionColor,
+	["textutils.tabulate"] = functionColor,
+	["textutils.pagedTabulate"] = functionColor,
+	["textutils.pagedPrint"] = functionColor,
+	["textutils.serialize"] = functionColor,
+	["textutils.unserialize"] = functionColor,
+	["textutils.serializeJSON"] = functionColor,
+	["textutils.urlEncode"] = functionColor,
+	["textutils.complete"] = functionColor,
+
+	--turtle
+	["turtle"] = functionColor,
+	["turtle.craft"] = functionColor,
+	["turtle.forward"] = functionColor,
+	["turtle.back"] = functionColor,
+	["turtle.up"] = functionColor,
+	["turtle.down"] = functionColor,
+	["turtle.turnLeft"] = functionColor,
+	["turtle.turnRight"] = functionColor,
+	["turtle.select"] = functionColor,
+	["turtle.getSelectedSlot"] = functionColor,
+	["turtle.getItemCount"] = functionColor,
+	["turtle.getItemSpace"] = functionColor,
+	["turtle.getItemDetail"] = functionColor,
+	["turtle.equipLeft"] = functionColor,
+	["turtle.equipRight"] = functionColor,
+	["turtle.attack"] = functionColor,
+	["turtle.attackUp"] = functionColor,
+	["turtle.attackDown"] = functionColor,
+	["turtle.dig"] = functionColor,
+	["turtle.digUp"] = functionColor,
+	["turtle.digDown"] = functionColor,
+	["turtle.place"] = functionColor,
+	["turtle.placeUp"] = functionColor,
+	["turtle.placeDown"] = functionColor,
+	["turtle.detect"] = functionColor,
+	["turtle.detectUp"] = functionColor,
+	["turtle.detectDown"] = functionColor,
+	["turtle.inspect"] = functionColor,
+	["turtle.inspectUp"] = functionColor,
+	["turtle.inspectDown"] = functionColor,
+	["turtle.compare"] = functionColor,
+	["turtle.compareUp"] = functionColor,
+	["turtle.compareDown"] = functionColor,
+	["turtle.compareTo"] = functionColor,
+	["turtle.drop"] = functionColor,
+	["turtle.dropUp"] = functionColor,
+	["turtle.dropDown"] = functionColor,
+	["turtle.suck"] = functionColor,
+	["turtle.suckUp"] = functionColor,
+	["turtle.suckDown"] = functionColor,
+	["turtle.refuel"] = functionColor,
+	["turtle.getFuelLevel"] = functionColor,
+	["turtle.getFuelLimit"] = functionColor,
+	["turtle.transferTo"] = functionColor,
+	
+	--vector
+	["vector"] = functionColor,
+	["vector.new"] = functionColor,
+	
+	--lua
+	["tonumber"] = functionColor,
+	["tostring"] = functionColor,
+	["print"] = functionColor,
+	["pairs"] = functionColor,
+	["ipairs"] = functionColor,
+	["pcall"] = functionColor,
+	["error"] = functionColor,
+}
+
+local function tryWrite(sLine, regex, color)
+	local match = string.match(sLine, regex)
+	
+	if match then
+		if type(color) == "number" then
+			term.setTextColor(color)
+		else
+			term.setTextColor(color(match))
+		end
+		
+		term.write(match)
+		term.setTextColor(textColor)
+		return string.sub(sLine, string.len(match) + 1)
+	end
+	
+	return nil
+end
+
+local function writeHighlighted(sLine)
+	function match(m)
+		if tKeywords[m] then
+			return tKeywords[m]
+		end
+		return textColor
+	end
+
+	while string.len(sLine) > 0 do	
+		sLine = 
+			tryWrite(sLine, "^%-%-%[%[.-%]%]", commentColor) or
+			tryWrite(sLine, "^%-%-.*", commentColor) or
+			tryWrite(sLine, "^\".-[^\\]\"", stringColor) or
+			tryWrite(sLine, "^\'.-[^\\]\'", stringColor) or
+			tryWrite(sLine, "^\"\"", stringColor) or
+			tryWrite(sLine, "^''", stringColor) or
+			tryWrite(sLine, "^%[%[.-%]%]", stringColor) or
+			tryWrite(sLine, "^[.]+", operatorColor) or
+			tryWrite(sLine, "^[%d%.]+", numberColor) or
+			tryWrite(sLine, "^[%d%a%._]+", match) or
+			tryWrite(sLine, "^[^%w_.]", operatorColor)
+	end
+end
+
+local function redrawText()
+	for y = 1,h - 1 do
+		term.setCursorPos(1 - scrollX, y)
+		term.clearLine()
+
+		local sLine = tLines[y + scrollY]
+		
+		if sLine ~= nil then
+			writeHighlighted(sLine)
+		end
+	end
+	
+	term.setCursorPos(x - scrollX, y - scrollY)
+end
+
+local function redrawLine(_nY)
+	local sLine = tLines[_nY]
+	term.setCursorPos(1 - scrollX, _nY - scrollY)
+	term.clearLine()
+	writeHighlighted(sLine)
+	term.setCursorPos(x - scrollX, _nY - scrollY)
+end
+
+local function redrawMenu()
+	-- Clear line
+	term.setCursorPos(1, h)
+	term.clearLine()
+
+	-- Draw line numbers
+	term.setCursorPos(w - string.len("Ln " .. y) + 1, h)
+	term.setTextColor(highlightColor)
+	term.write("Ln ")
+	term.setTextColor(textColor)
+	term.write(y)
+
+	term.setCursorPos(1, h)
+	
+	if bMenu then
+		-- Draw menu
+		term.setTextColor(textColor)
+		
+		for nItem, sItem in pairs(tMenuItems) do
+			if nItem == nMenuItem then
+				term.setTextColor(highlightColor)
+				term.write("[")
+				term.setTextColor(textColor)
+				term.write(sItem)
+				term.setTextColor(highlightColor)
+				term.write("]")
+				term.setTextColor(textColor)
+			else
+				term.write(" " .. sItem .. " ")
+			end
+		end
+	else
+		-- Draw status
+		term.setTextColor(highlightColor)
+		term.write(sStatus)
+		term.setTextColor(textColor)
+	end
+
+	-- Reset cursor
+	term.setCursorPos(x - scrollX, y - scrollY)
+end
+
+local tMenuFuncs = { 
+	Save = function ()
+		if bReadOnly then
+			sStatus = "Access denied"
+		else
+			local ok, err = save(sPath)
+			
+			if ok then
+				sStatus="Press f1 to access menu"
+			else
+				sStatus="Press f1 to access menu"
+			end
+		end
+		
+		redrawMenu()
+	end,
+	Print = function ()
+		local printer = peripheral.find("printer")
+		
+		if not printer then
+			sStatus = "No printer attached"
+			return
+		end
+
+		local nPage = 0
+		local sName = fs.getName(sPath)
+		
+		if printer.getInkLevel() < 1 then
+			sStatus = "Printer out of ink"
+			return
+		elseif printer.getPaperLevel() < 1 then
+			sStatus = "Printer out of paper"
+			return
+		end
+
+		local screenTerminal = term.current()
+		local printerTerminal = {
+			getCursorPos = printer.getCursorPos,
+			setCursorPos = printer.setCursorPos,
+			getSize = printer.getPageSize,
+			write = printer.write,
+		}
+		printerTerminal.scroll = function ()
+			if nPage == 1 then
+				printer.setPageTitle(sName .. " (page " .. nPage .. ")")			
+			end
+			
+			while not printer.newPage()	do
+				if printer.getInkLevel() < 1 then
+					sStatus = "Printer out of ink, please refill"
+				elseif printer.getPaperLevel() < 1 then
+					sStatus = "Printer out of paper, please refill"
+				else
+					sStatus = "Printer output tray full, please empty"
+				end
+	
+				term.redirect(screenTerminal)
+				redrawMenu()
+				term.redirect(printerTerminal)
+				
+				local timer = os.startTimer(0.5)
+				sleep(0.5)
+			end
+
+			nPage = nPage + 1
+			if nPage == 1 then
+				printer.setPageTitle(sName)
+			else
+				printer.setPageTitle(sName .. " (page " .. nPage .. ")")
+			end
+		end
+		
+		bMenu = false
+		term.redirect(printerTerminal)
+		
+		local ok, error = pcall(function ()
+			term.scroll()
+			for n, sLine in ipairs(tLines) do
+				print(sLine)
+			end
+		end)
+		
+		term.redirect(screenTerminal)
+		
+		if not ok then
+			print(error)
+		end
+		
+		while not printer.endPage() do
+			sStatus = "Printer output tray full, please empty"
+			redrawMenu()
+			sleep(0.5)
+		end
+		
+		bMenu = true
+			
+		if nPage > 1 then
+			sStatus = "Printed " .. nPage .. " Pages"
+		else
+			sStatus = "Printed 1 Page"
+		end
+		
+		redrawMenu()
+	end,
+	Exit = function ()
+		bRunning = false
+	end
+}
+
+local function doMenuItem(_n)
+	tMenuFuncs[tMenuItems[_n]]()
+	
+	if bMenu then
+		bMenu = false
+		term.setCursorBlink(true)
+	end
+	
+	redrawMenu()
+end
+
+local function setCursor(x, y)
+	local screenX = x - scrollX
+	local screenY = y - scrollY
+	
+	local bRedraw = false
+	
+	if screenX < 1 then
+		scrollX = x - 1
+		screenX = 1
+		bRedraw = true
+	elseif screenX > w then
+		scrollX = x - w
+		screenX = w
+		bRedraw = true
+	end
+	
+	if screenY < 1 then
+		scrollY = y - 1
+		screenY = 1
+		bRedraw = true
+	elseif screenY > h - 1 then
+		scrollY = y - (h - 1)
+		screenY = h - 1
+		bRedraw = true
+	end
+	
+	if bRedraw then
+		redrawText()
+	end
+	term.setCursorPos(screenX, screenY)
+	
+	-- Statusbar now pertains to menu, it would probably be safe to redraw the menu on every key event.
+	redrawMenu()
+end
+
+-- Actual program functionality begins
+load(sPath)
+
+term.setBackgroundColor(bgColor)
+term.clear()
+term.setCursorPos(x, y)
+term.setCursorBlink(true)
+
+redrawText()
+redrawMenu()
+
+-- Handle input
+while bRunning do
+	local sEvent, param, param2, param3 = os.pullEvent()
+	
+	if sEvent == "key" then
+		if param == keys.up then
+			-- Up
+			if not bMenu then
+				if y > 1 then
+					-- Move cursor up
+					y = y - 1
+					x = math.min(x, string.len(tLines[y]) + 1)
+					setCursor(x, y)
+				end
+			end
+		elseif param == keys.down then
+			-- Down
+			if not bMenu then
+				-- Move cursor down
+				if y < #tLines then
+					y = y + 1
+					x = math.min(x, string.len(tLines[y]) + 1)
+					setCursor(x, y)
+				end
+			end
+		elseif param == keys.tab then
+			-- Tab
+			if not bMenu and not bReadOnly then
+				-- Indent line
+				tLines[y] = "  " .. tLines[y]
+				x = x + 2
+				setCursor(x, y)
+				redrawLine(y)
+			end
+		elseif param == keys.pageUp then
+			-- Page Up
+			if not bMenu then
+				-- Move up a page
+				if y - (h - 1) >= 1 then
+					y = y - (h - 1)
+				else
+					y = 1
+				end
+				x = math.min(x, string.len(tLines[y]) + 1)
+				setCursor(x, y)
+			end
+		elseif param == keys.pageDown then
+			-- Page Down
+			if not bMenu then
+				-- Move down a page
+				if y + (h - 1) <= #tLines then
+					y = y + (h - 1)
+				else
+					y = #tLines
+				end
+				x = math.min(x, string.len(tLines[y]) + 1)
+				setCursor(x, y)
+			end
+		elseif param == keys.home then
+			-- Home
+			if not bMenu then
+				-- Move cursor to the beginning
+				x = 1
+				setCursor(x, y)
+			end
+		elseif param == keys["end"] then
+			-- End
+			if not bMenu then
+				-- Move cursor to the end
+				x = string.len(tLines[y]) + 1
+				setCursor(x, y)
+			end
+		elseif param == keys.left then
+			-- Left
+			if not bMenu then
+				if x > 1 then
+					-- Move cursor left
+					x = x - 1
+				elseif x == 1 and y > 1 then
+					x = string.len(tLines[y - 1]) + 1
+					y = y - 1
+				end
+				setCursor(x, y)
+			else
+				-- Move menu left
+				nMenuItem = nMenuItem - 1
+				if nMenuItem < 1 then
+					nMenuItem = #tMenuItems
+				end
+				redrawMenu()
+			end
+		elseif param == keys.right then
+			-- Right
+			if not bMenu then
+				if x < string.len(tLines[y]) + 1 then
+					-- Move cursor right
+					x = x + 1
+				elseif x == string.len(tLines[y]) + 1 and y < #tLines then
+					x = 1
+					y = y + 1
+				end
+				setCursor(x, y)
+			else
+				-- Move menu right
+				nMenuItem = nMenuItem + 1
+				if nMenuItem > #tMenuItems then
+					nMenuItem = 1
+				end
+				redrawMenu()
+			end
+		elseif param == keys.delete then
+			-- Delete
+			if not bMenu and not bReadOnly then
+				if  x < string.len(tLines[y]) + 1 then
+					local sLine = tLines[y]
+					tLines[y] = string.sub(sLine, 1, x - 1) .. string.sub(sLine, x + 1)
+					redrawLine(y)
+				elseif y < #tLines then
+					tLines[y] = tLines[y] .. tLines[y + 1]
+					table.remove(tLines, y + 1)
+					redrawText()
+					redrawMenu()
+				end
+			end
+		elseif param == keys.backspace then
+			-- Backspace
+			if not bMenu and not bReadOnly then
+				if x > 1 then
+					-- Remove character
+					local sLine = tLines[y]
+					tLines[y] = string.sub(sLine, 1, x - 2) .. string.sub(sLine, x)
+					redrawLine(y)
+			
+					x = x - 1
+					setCursor(x, y)
+				elseif y > 1 then
+					-- Remove newline
+					local sPrevLen = string.len(tLines[y - 1])
+					tLines[y - 1] = tLines[y - 1] .. tLines[y]
+					table.remove(tLines, y)
+					redrawText()
+				
+					x = sPrevLen + 1
+					y = y - 1
+					setCursor(x, y)
+				end
+			end
+		elseif param == keys.enter then
+			-- Enter
+			if not bMenu and not bReadOnly then
+				-- Newline
+				local sLine = tLines[y]
+				local _, spaces = string.find(sLine, "^[ ]+")
+				
+				if not spaces then
+					spaces = 0
+				end
+				
+				tLines[y] = string.sub(sLine, 1, x - 1)
+				table.insert(tLines, y + 1, string.rep(' ', spaces) .. string.sub(sLine, x))
+				redrawText()
+			
+				x = spaces + 1
+				y = y + 1
+				setCursor(x, y)
+			elseif bMenu then
+				-- Menu selection
+				doMenuItem(nMenuItem)
+			end
+		elseif param == keys.f1 then
+			-- Menu toggle
+			bMenu = not bMenu
+			
+			if bMenu then
+				term.setCursorBlink(false)
+			else
+				term.setCursorBlink(true)
+			end
+			
+			redrawMenu()
+		end
+		
+	elseif sEvent == "char" then
+		if not bMenu and not bReadOnly then
+			-- Input text
+			local sLine = tLines[y]
+			tLines[y] = string.sub(sLine, 1, x - 1) .. param .. string.sub(sLine, x)
+			redrawLine(y)
+		
+			x = x + 1
+			setCursor(x, y)
+		elseif bMenu then
+			-- Select menu items
+			for n, sMenuItem in ipairs(tMenuItems) do
+				if string.lower(string.sub(sMenuItem, 1, 1)) == string.lower(param) then
+					doMenuItem(n)
+					break
+				end
+			end
+		end
+	elseif sEvent == "paste" then
+		if not bMenu and not bReadOnly then
+			-- Input text
+			local sLine = tLines[y]
+			tLines[y] = string.sub(sLine, 1, x - 1) .. param .. string.sub(sLine, x)
+			redrawLine(y)
+
+			x = x + string.len(param)
+			setCursor(x, y)
+		end
+	elseif sEvent == "mouse_click" then
+		if not bMenu then
+			if param == 1 then
+				-- Left click
+				local cx, cy = param2, param3
+				if cy < h then
+					y = math.min(math.max(scrollY + cy, 1), #tLines)
+					x = math.min(math.max(scrollX + cx, 1), string.len(tLines[y]) + 1)
+					setCursor(x, y)
+				end
+			end
+		end
+	elseif sEvent == "mouse_scroll" then
+		if not bMenu then
+			if param == -1 then
+				-- Scroll up
+				if scrollY > 0 then
+					-- Move cursor up
+					scrollY = scrollY - 1
+					redrawText()
+				end
+			elseif param == 1 then
+				-- Scroll down
+				local nMaxScroll = #tLines - (h - 1)
+				
+				if scrollY < nMaxScroll then
+					-- Move cursor down
+					scrollY = scrollY + 1
+					redrawText()
+				end
+			end
+		end
+
+	elseif sEvent == "window_resize" then
+		w, h = term.getSize()
+		setCursor(x, y)
+		redrawMenu()
+		redrawText()
+	end
+end
+
+-- Cleanup
+term.clear()
+term.setCursorBlink(false)
+term.setCursorPos(1, 1)
